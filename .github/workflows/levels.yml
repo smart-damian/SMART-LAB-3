@@ -1,5 +1,5 @@
 # Runs scan_tf.py on six independent schedules. Telegram only hears about NEW
-# signals (see alerts.py). All times are UTC (GitHub cron always is).
+# signals  (see alerts.py). All times are UTC (GitHub cron always is).
 name: Levels
 
 on:
