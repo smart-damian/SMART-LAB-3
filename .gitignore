@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+.pytest_cache/
+# the database is generated data, not source code
+data/
+*.csv
+# alert memory: generated while running, never commit it
+state/

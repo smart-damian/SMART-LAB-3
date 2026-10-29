@@ -1,0 +1,157 @@
+# Runs scan_tf.py on six independent schedules. Telegram only hears about NEW
+# signals (see alerts.py). All times are UTC (GitHub cron always is).
+name: Levels
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"        # 5m  : every 5 minutes
+    - cron: "4,19,34,49 * * * *" # 15m : every 15 minutes, a few minutes after the candle closes
+    - cron: "1,31 * * * *"       # 30m : at :01 and :31
+    - cron: "2 * * * *"          # 1h  : at :02 every hour
+    - cron: "3 */4 * * *"        # 4h  : at 00:03, 04:03, 08:03 ...
+    - cron: "6 0 * * *"          # 1d  : 00:06 daily
+  workflow_dispatch:              # "Run workflow" button, for manual tests
+    inputs:
+      timeframe:
+        description: "Timeframe to scan"
+        type: choice
+        options: ["5m", "15m", "30m", "1h", "4h", "1d"]
+        default: "1d"
+
+# Least privilege: this job only needs to read the repo.
+# (The alert memory uses the Actions cache, which needs no extra permission.)
+permissions:
+  contents: read
+
+# If a run is still going when the next one for the same timeframe starts,
+# queue it instead of running two copies at once. This also guarantees one
+# writer at a time for that timeframe's memory file.
+concurrency:
+  group: levels-${{ github.event.schedule || inputs.timeframe }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5          # a hung download must not burn minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip            # re-uses downloaded packages: faster, cheaper
+
+      - run: pip install -r requirements.txt
+
+      - name: Work out which timeframe this trigger means
+        id: tf
+        env:
+          # Passed through env (not pasted into the script) so GitHub values
+          # can never be interpreted as shell code.
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ inputs.timeframe }}
+        run: |
+          case "$SCHEDULE" in
+            "*/5 * * * *")          tf=5m ;;
+            "4,19,34,49 * * * *")   tf=15m ;;
+            "1,31 * * * *")         tf=30m ;;
+            "2 * * * *")            tf=1h ;;
+            "3 */4 * * *")          tf=4h ;;
+            "6 0 * * *")            tf=1d ;;
+            *)                      tf="${MANUAL:-1d}" ;;
+          esac
+          echo "timeframe=$tf" >> "$GITHUB_OUTPUT"
+
+      # ---- alert memory -------------------------------------------------
+      # A runner is thrown away after every run, so "what did I already send?"
+      # must be kept outside it. We use the Actions cache. A cache entry can't be
+      # overwritten, so each run saves a NEW entry (key ends in the run id) and
+      # the next run restores the NEWEST entry whose key starts with the prefix.
+      # The "-none" key never exists; it only forces the prefix lookup.
+      # If a cache is ever evicted the worst case is ONE repeated alert.
+      - name: Restore this timeframe's memory
+        uses: actions/cache/restore@v4
+        with:
+          path: state/${{ steps.tf.outputs.timeframe }}.json
+          key: state-${{ steps.tf.outputs.timeframe }}-none
+          restore-keys: state-${{ steps.tf.outputs.timeframe }}-
+
+      # ---- Alert 2: which timeframes does it need? ------------------------
+      # The answer lives in ONE place (the ALERT2 setting in timeframes.py). This
+      # step reads it, so changing the setting needs no edit in this file.
+      - name: Read the Alert 2 setting
+        id: conf
+        run: |
+          python - >> "$GITHUB_OUTPUT" << 'EOF'
+          import json
+          from timeframes import ALERT2
+          print(f"base={ALERT2.base}")
+          print(f"partners={json.dumps(list(ALERT2.partners))}")
+          EOF
+
+      # Only the base run (the fastest watched timeframe) evaluates Alert 2. It
+      # READS the other watched timeframes' saved results. A workflow can't loop over steps, so
+      # there is one conditional step per timeframe; each runs only when that
+      # timeframe is a partner of the current run.
+      - name: Restore 5m memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '5m')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/5m.json
+          key: state-5m-none
+          restore-keys: state-5m-
+
+      - name: Restore 15m memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '15m')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/15m.json
+          key: state-15m-none
+          restore-keys: state-15m-
+
+      - name: Restore 30m memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '30m')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/30m.json
+          key: state-30m-none
+          restore-keys: state-30m-
+
+      - name: Restore 1h memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '1h')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/1h.json
+          key: state-1h-none
+          restore-keys: state-1h-
+
+      - name: Restore 4h memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '4h')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/4h.json
+          key: state-4h-none
+          restore-keys: state-4h-
+
+      - name: Restore 1d memory (read-only, for Alert 2)
+        if: steps.tf.outputs.timeframe == steps.conf.outputs.base && contains(fromJSON(steps.conf.outputs.partners), '1d')
+        uses: actions/cache/restore@v4
+        with:
+          path: state/1d.json
+          key: state-1d-none
+          restore-keys: state-1d-
+
+      - name: Scan and alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scan_tf.py "${{ steps.tf.outputs.timeframe }}"
+
+      # Runs only if the scan succeeded. If Telegram failed (exit code 2) the
+      # memory is NOT saved, so the next run tries to send the alert again.
+      - name: Save this timeframe's memory
+        uses: actions/cache/save@v4
+        with:
+          path: state/${{ steps.tf.outputs.timeframe }}.json
+          key: state-${{ steps.tf.outputs.timeframe }}-${{ github.run_id }}-${{ github.run_attempt }}

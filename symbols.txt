@@ -1,0 +1,35 @@
+# One Yahoo Finance symbol per line. Lines starting with # are ignored.
+
+# Forex
+AUDUSD=X
+EURUSD=X
+GBPUSD=X
+NZDUSD=X
+USDCAD=X
+USDCHF=X
+USDHKD=X
+USDJPY=X
+USDSGD=X
+
+# Metals
+SI=F    # silver
+ALI=F   # aluminium (thin data on Yahoo, may be skipped)
+GC=F    # gold
+HG=F    # copper
+PA=F    # palladium
+PL=F    # platinum
+
+# Indices
+^GSPC   # S&P 500
+^FTSE   # FTSE 100
+^DJI    # Dow Jones
+
+# Energy
+CL=F    # crude oil
+NG=F    # natural gas
+
+# Crypto
+BNB-USD
+BTC-USD
+ETH-USD
+BCH-USD
