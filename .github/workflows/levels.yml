@@ -1,16 +1,11 @@
-# Runs scan_tf.py on six independent schedules. Telegram only hears about NEW
-# signals  (see alerts.py). All times are UTC (GitHub cron always is).
+# Runs scan_tf.py for ONE timeframe per run. Telegram only hears about NEW
+# signals (see alerts.py). Runs are triggered on time by cron-job.org through
+# workflow_dispatch (see docs/cron-job-org-settings.md); GitHub's own schedule
+# was unreliable, so it was removed.
 name: Levels
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"        # 5m  : every 5 minutes
-    - cron: "4,19,34,49 * * * *" # 15m : every 15 minutes, a few minutes after the candle closes
-    - cron: "1,31 * * * *"       # 30m : at :01 and :31
-    - cron: "2 * * * *"          # 1h  : at :02 every hour
-    - cron: "3 */4 * * *"        # 4h  : at 00:03, 04:03, 08:03 ...
-    - cron: "6 0 * * *"          # 1d  : 00:06 daily
-  workflow_dispatch:              # "Run workflow" button, for manual tests
+  workflow_dispatch:              # cron-job.org + the "Run workflow" button
     inputs:
       timeframe:
         description: "Timeframe to scan"
